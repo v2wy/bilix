@@ -346,7 +346,7 @@ class VideoInfo(BaseModel):
     tags: Optional[List[str]] = None
 
 
-def _parse_bv_html(url, html: str) -> VideoInfo:
+async def _parse_bv_html(client,url, html: str) -> VideoInfo:
     init_info = re.search(r'<script>window.__INITIAL_STATE__=({.*?});\(', html).groups()[0]  # this line may raise
     init_info = json.loads(init_info)
     if len(init_info.get('error', {})) > 0:
@@ -368,9 +368,10 @@ def _parse_bv_html(url, html: str) -> VideoInfo:
         p_name = f"P{idx + 1}-{i['part']}" if len(init_info['videoData']['pages']) > 1 else ''
         pages.append(Page(p_name=p_name, p_url=p_url))
     # extract dash and flv_url
+    
+    play_info_response = await req_retry(client, f'https://api.bilibili.com/x/player/wbi/playurl?bvid={bvid}&cid={cid}&fnval=4048')
+    play_info = json.loads(play_info_response.text)['data']
     dash, other = None, []
-    play_info = re.search('<script>window.__playinfo__=({.*?})</script><script>', html).groups()[0]
-    play_info = json.loads(play_info)['data']
     try:
         dash = Dash.from_dict(play_info)
     except KeyError:
@@ -442,7 +443,7 @@ async def _get_video_info_from_html(client: httpx.AsyncClient, url: str) -> Vide
     if "window._riskdata_" in html:
         raise APIInvalidError("web 前端访问被风控", url)
     if "window.__INITIAL_STATE__" in html:
-        return _parse_bv_html(url, html)
+        return await _parse_bv_html(client,url, html)
     elif "__NEXT_DATA__" in html:
         video_info = _parse_ep_html(url, html)
         await _attach_ep_dash(client, video_info)
